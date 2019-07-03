@@ -1,17 +1,27 @@
 const fs = require('fs');
 const moment = require('moment');
 const rp = require('request-promise');
+const axios = require('axios');
+const xmlParser = require('fast-xml-parser');
+// const FormData = require('form-data');
+
 const SDMX_ACCEPT_HEADER = 'application/vnd.sdmx.data+json;version=1.0.0-wd';
 
 require('isomorphic-fetch');
 require('isomorphic-form-data');
 const { queryFeatures } = require('@esri/arcgis-rest-feature-layer');
-const { request } = require('@esri/arcgis-rest-request');
 
 const buffer = require('buffer');
 buffer.constants.MAX_STRING_LENGTH = Infinity;
 
-function createFeatureCollection(json) {
+// const debug = require('debug')('sdmx-express:server');
+
+/**
+ * Create feature collection from Xml string
+ * @param json JSON object of SDMX response
+ * @param title The name of the output layer
+ */
+function createFeatureCollection(json, title) {
   let fc = {
     type: 'FeatureCollection',
     features: []
@@ -45,9 +55,9 @@ function createFeatureCollection(json) {
   const features = createFeatures(observations, dimensionProps, attributeProps);
   fc.features = features;
 
-  const layerName = json.data.structure.name.en || json.data.structure.name;
+  // const layerName = json.data.structure.name.en || json.data.structure.name;
 
-  fc.metadata.name = layerName;
+  fc.metadata.name = title;
 
   return fc;
 }
@@ -154,6 +164,95 @@ function parseFieldsAndLookups(dimensionProps, attributeProps) {
   return fields;
 }
 
+/**
+ * Create feature collection from Xml string
+ * @param xmlString The XML formatted string
+ * @param title The name of the output layer
+ */
+function createFeatureCollectionFromXml(xmlString, title) {
+  let fc = {
+    type: 'FeatureCollection',
+    features: []
+  };
+
+  fc.metadata = {
+    name: 'from sdmx',
+    idField: 'counterField',
+    fields: [
+      {
+        name: 'counterField',
+        alias: 'counterField',
+        type: 'Integer'
+      }
+    ]
+  };
+
+  // const validXml = xmlParser.validate(response);
+  // if (validXml !== true) {
+  //   console.log(validXml.err);
+  //   return { isValid: false, count: 0 };
+  // }
+
+  const parsedXml = xmlParser.parse(xmlString, {
+    ignoreAttributes: false,
+    ignoreNameSpace: true
+  });
+
+  let fields = parseFieldsAndLookupsFromXml(parsedXml);
+  fields.push({
+    name: 'OBS_VALUE',
+    alias: 'Observation Value',
+    type: 'Double'
+  });
+
+  fc.metadata.fields = [...fc.metadata.fields, ...fields];
+
+  const observations = parsedXml.GenericData.DataSet.Obs;
+
+  const features = createFeaturesFromXml(observations);
+  fc.features = features;
+
+  fc.metadata.name = title;
+
+  return fc;
+}
+
+/**
+ * Get Fields from SDMX XML response
+ * @param parsedXml The XML as JSON object
+ */
+function parseFieldsAndLookupsFromXml(parsedXml) {
+  const keyFields = parsedXml.GenericData.DataSet.Obs[0].ObsKey.Value.map(rec => rec['@_id']);
+  const attFields = parsedXml.GenericData.DataSet.Obs[0].Attributes.Value.map(rec => rec['@_id']);
+  return [...keyFields, ...attFields];
+}
+
+/**
+ * Create GeoJson features from XML
+ * @param observations The SDMX observations
+ */
+function createFeaturesFromXml(observations) {
+  let features = observations.map((obs, i) => {
+    let feature = { type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [] } };
+    const featureKeys = obs.ObsKey.Value;
+    featureKeys.forEach(fk => {
+      feature.properties[fk['@_id']] = fk['@_value'];
+    });
+
+    const attributes = obs.Attributes.Value;
+    attributes.forEach(att => {
+      feature.properties[att['@_id']] = att['@_value'];
+    });
+
+    feature.properties['OBS_VALUE'] = obs.ObsValue['@_value'];
+
+    feature.properties['counterField'] = i++;
+
+    return feature;
+  });
+  return features;
+}
+
 module.exports = {
   getFeatureServiceFields: () => {
     return {};
@@ -164,21 +263,30 @@ module.exports = {
     return outJson;
   },
 
-  querySDMXEndpoint: async sdmxApi => {
-    const options = {
-      url: sdmxApi,
-      json: true,
-      headers: { accept: SDMX_ACCEPT_HEADER }
+  querySDMXEndpoint: async (sdmxApi, returnJson) => {
+    let options = {
+      url: sdmxApi
     };
+
+    if (returnJson) {
+      options.json = true;
+      options.headers = { accept: SDMX_ACCEPT_HEADER };
+    }
+
     let response = await rp(options);
-    if (!response.data) {
+    if (returnJson && !response.data) {
       response = { data: response };
     }
     return response;
   },
 
-  sdmxToGeoJson: dataSet => {
-    const fc = createFeatureCollection(dataSet);
+  sdmxToGeoJson: (dataSet, title, isJson) => {
+    let fc = null;
+    if (isJson) {
+      fc = createFeatureCollection(dataSet, title);
+    } else {
+      fc = createFeatureCollectionFromXml(dataSet, title);
+    }
     return fc;
   },
 
@@ -221,10 +329,15 @@ module.exports = {
   },
 
   addGeoJsonItem: async (geojson, title, token, userContentUrl) => {
+    // can't figure out how to use axios lib to POST with the geojson as a file
+    // .. sticking with request-promise (rp)
     const options = {
       url: `${userContentUrl}/addItem`,
       method: 'POST',
       json: true,
+      headers: {
+        'Cache-control': 'no cache'
+      },
       formData: {
         title: title,
         type: 'GeoJson',
@@ -239,22 +352,37 @@ module.exports = {
         }
       }
     };
-    const response = await rp(options);
+    const addResponse = await rp(options);
 
-    // const addStatus = await testItOut(response.id, token, userContentUrl);
+    const updateOptions = {
+      url: `${userContentUrl}/items/${addResponse.id}/update`,
+      method: 'post',
+      repsonseType: 'json',
+      params: {
+        f: 'json',
+        token: token,
+        tags: 'SDMX',
+        typeKeywords: `SDMX`
+      }
+    };
+    const updateResponse = await axios(updateOptions);
 
-    return response;
+    return { id: addResponse.id };
   },
 
   publishGeoJsonItem: async (itemId, title, token, userContentUrl) => {
     const options = {
-      httpMethod: 'POST',
+      url: `${userContentUrl}/publish`,
+      method: 'post',
+      responseType: 'json',
       params: {
         itemId: itemId,
-        f: 'json',
-        token: token,
-        filetype: 'geojson',
         overwrite: false,
+        filetype: 'geojson',
+        f: 'json',
+        tags: 'SDMX',
+        typeKeywords: 'SDMX',
+        token: token,
         publishParameters: {
           hasStaticData: true,
           name: title,
@@ -266,7 +394,21 @@ module.exports = {
       }
     };
 
-    const response = await request(`${userContentUrl}/publish`, options);
+    const response = await axios(options);
+
+    const updateOptions = {
+      url: `${userContentUrl}/items/${response.data.services[0].serviceItemId}/update`,
+      method: 'post',
+      repsonseType: 'json',
+      params: {
+        f: 'json',
+        token: token,
+        tags: 'SDMX',
+        typeKeywords: `SDMX`
+      }
+    };
+    const updateResponse = await axios(updateOptions);
+
     return response;
   }
 };

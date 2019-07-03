@@ -9,14 +9,11 @@ const cookieParser = require('cookie-parser');
 const logger = require('morgan');
 const fileUpload = require('express-fileupload');
 const cors = require('cors');
-const kue = require('kue');
 
 const indexRouter = require('./routes/index');
 const sdmxRouter = require('./routes/publishSDMX');
 
 const app = express();
-// console.log(process.env.PORT || 3200);
-app.set('port', process.env.PORT || 3000);
 
 // view engine setup
 app.set('views', path.join(__dirname, 'views'));
@@ -32,11 +29,17 @@ app.use(fileUpload({ useTempFiles: true, tempFileDir: 'tempfiles' }));
 
 app.use('/', indexRouter);
 app.use('/publishSDMX', sdmxRouter);
-app.use('/kuemon', kue.app);
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
   next(createError(404));
+});
+
+app.use(function(req, res, next) {
+  res.header('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+  res.header('Expires', '-1');
+  res.header('Pragma', 'no-cache');
+  next();
 });
 
 // error handler
