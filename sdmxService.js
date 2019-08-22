@@ -3,7 +3,7 @@ const moment = require('moment');
 const rp = require('request-promise');
 const axios = require('axios');
 const xmlParser = require('fast-xml-parser');
-// const FormData = require('form-data');
+const Papa = require('papaparse');
 
 const SDMX_ACCEPT_HEADER = 'application/vnd.sdmx.data+json;version=1.0.0-wd';
 
@@ -72,7 +72,8 @@ function createFeatures(observations, dimensionProps, attributeProps) {
   let features = [];
   let idCounter = 1;
   for (const obs in observations) {
-    let feature = { type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [] } };
+    // let feature = { type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [] } };
+    let feature = { type: 'Feature', properties: {}, geometry: {} };
 
     const dimSplits = obs.split(':');
     const attributes = observations[obs];
@@ -166,6 +167,56 @@ function parseFieldsAndLookups(dimensionProps, attributeProps) {
 
 /**
  * Create feature collection from Xml string
+ * @param csvFile The XML formatted string
+ * @param title The name of the output layer
+ */
+function createFeatureCollectionFromCsv(csvFile, title) {
+  let fc = {
+    type: 'FeatureCollection',
+    features: []
+  };
+
+  fc.metadata = {
+    name: 'from sdmx',
+    idField: 'counterField',
+    fields: [
+      {
+        name: 'counterField',
+        alias: 'counterField',
+        type: 'Integer'
+      }
+    ]
+  };
+
+  let fields = Object.keys(csvFile[0]).map(field => ({ name: field, alias: field, type: 'String' }));
+
+  fc.metadata.fields = [...fc.metadata.fields, ...fields];
+
+  const features = createFeaturesFromCsv(csvFile);
+  fc.features = features;
+
+  fc.metadata.name = title;
+
+  return fc;
+}
+
+function createFeaturesFromCsv(csvFile) {
+  let features = csvFile.map((feat, i) => {
+    let feature = {
+      type: 'Feature',
+      properties: feat,
+      geometry: { type: 'Point', coordinates: [] }
+    };
+
+    feature.properties['counterField'] = i++;
+
+    return feature;
+  });
+  return features;
+}
+
+/**
+ * Create feature collection from Xml string
  * @param xmlString The XML formatted string
  * @param title The name of the output layer
  */
@@ -186,12 +237,6 @@ function createFeatureCollectionFromXml(xmlString, title) {
       }
     ]
   };
-
-  // const validXml = xmlParser.validate(response);
-  // if (validXml !== true) {
-  //   console.log(validXml.err);
-  //   return { isValid: false, count: 0 };
-  // }
 
   const parsedXml = xmlParser.parse(xmlString, {
     ignoreAttributes: false,
@@ -258,9 +303,24 @@ module.exports = {
     return {};
   },
 
-  loadAndParseFile: tempFilePath => {
-    const outJson = JSON.parse(fs.readFileSync(tempFilePath));
-    return outJson;
+  loadAndParseFile: async (tempFilePath, isSDMXUploadCsv) => {
+    return new Promise((resolve, reject) => {
+      if (isSDMXUploadCsv) {
+        const file = fs.createReadStream(tempFilePath);
+        const outCsv = Papa.parse(file, {
+          header: true,
+          complete: (results, file) => {
+            resolve(results.data);
+          },
+          error: (error, file) => {
+            reject(error);
+          }
+        });
+      } else {
+        const outJson = JSON.parse(fs.readFileSync(tempFilePath));
+        resolve(outJson);
+      }
+    });
   },
 
   querySDMXEndpoint: async (sdmxApi, returnJson) => {
@@ -280,23 +340,23 @@ module.exports = {
     return response;
   },
 
-  sdmxToGeoJson: (dataSet, title, isJson) => {
+  sdmxToGeoJson: (dataSet, title, isJson, isSDMXUploadCsv) => {
     let fc = null;
     if (isJson) {
       fc = createFeatureCollection(dataSet, title);
+    } else if (isSDMXUploadCsv) {
+      fc = createFeatureCollectionFromCsv(dataSet, title);
     } else {
       fc = createFeatureCollectionFromXml(dataSet, title);
     }
     return fc;
   },
 
-  queryFeatureServiceForGeographies: async (url, whereClause) => {
-    const where = whereClause || '1=1';
-
+  queryFeatureServiceForGeographies: async (url, whereClause, outFields) => {
     return queryFeatures({
       url: `${url}/query`,
-      where: where,
-      outFields: '*',
+      where: whereClause || '1=1',
+      outFields: outFields || '*',
       outSR: 4326,
       params: { f: 'geojson' }
     });
