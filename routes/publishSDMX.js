@@ -60,9 +60,14 @@ router.post('/', async (req, res, next) => {
     if (files && req.files.geoFile) {
       geographiesResponse = sdmxService.loadAndParseFile(files.sdmxFile.tempFilePath);
     } else {
+      let uniqueGeoValues = sdmxService.getUniqueGeoValues(sdmxAsGeoJson, params.sdmxField);
+      let whereClause = null;
+      if (uniqueGeoValues.length > 0) {
+        whereClause = `${params.geoField} IN ('${uniqueGeoValues.join("','")}')`;
+      }
       geographiesResponse = await sdmxService.queryFeatureServiceForGeographies(
         params.geographiesFeatureServiceUrl,
-        null,
+        whereClause,
         [params.geoField]
       );
     }

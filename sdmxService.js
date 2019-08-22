@@ -352,6 +352,10 @@ module.exports = {
     return fc;
   },
 
+  getUniqueGeoValues: (sdmxAsGeoJson, sdmxField) => {
+    return [...new Set(sdmxAsGeoJson.features.map(feature => feature.properties[sdmxField]))];
+  },
+
   queryFeatureServiceForGeographies: async (url, whereClause, outFields) => {
     return queryFeatures({
       url: `${url}/query`,
