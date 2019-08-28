@@ -100,7 +100,13 @@ router.post('/', async (req, res, next) => {
   // publish geojson as feature service
   let publishResponse = null;
   try {
-    publishResponse = await sdmxService.publishGeoJsonItem(addResponse.id, title, token, userContentUrl);
+    publishResponse = await sdmxService.publishGeoJsonItem(
+      addResponse.id,
+      title,
+      token,
+      userContentUrl,
+      params.sdmxMetaParams ? JSON.parse(params.sdmxMetaParams) : null
+    );
   } catch (error) {
     return res.json({
       success: false,

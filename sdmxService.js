@@ -434,7 +434,7 @@ module.exports = {
     return { id: addResponse.id };
   },
 
-  publishGeoJsonItem: async (itemId, title, token, userContentUrl) => {
+  publishGeoJsonItem: async (itemId, title, token, userContentUrl, sdgMetadata) => {
     const options = {
       url: `${userContentUrl}/publish`,
       method: 'post',
@@ -471,6 +471,54 @@ module.exports = {
         typeKeywords: `SDMX`
       }
     };
+
+    if (sdgMetadata) {
+      if (sdgMetadata.seriesTags && sdgMetadata.seriesTags.length > 0) {
+        updateOptions.params.tags = [...sdgMetadata.seriesTags, 'SDMX'].join(',');
+      }
+      let description = [];
+
+      // Build Goal Info
+      if (sdgMetadata.goalCode && sdgMetadata.goal) {
+        description.push(`Goal ${sdgMetadata.goalCode} - ${sdgMetadata.goal}`);
+      } else if (sdgMetadata.goalCode) {
+        description.push(`Goal ${sdgMetadata.goalCode}`);
+      } else if (sdgMetadata.goal) {
+        description.push(`${sdgMetadata.goalCode}`);
+      }
+
+      // Build Target Info
+      if (sdgMetadata.targetCode && sdgMetadata.target) {
+        description.push(`Target ${sdgMetadata.targetCode} - ${sdgMetadata.target}`);
+      } else if (sdgMetadata.targetCode) {
+        description.push(`Target ${sdgMetadata.targetCode}`);
+      } else if (sdgMetadata.target) {
+        description.push(`${sdgMetadata.targetCode}`);
+      }
+
+      // Build Indicator Info
+      if (sdgMetadata.indicatorCode && sdgMetadata.indicator) {
+        description.push(`Indicator ${sdgMetadata.indicatorCode} - ${sdgMetadata.indicator}`);
+      } else if (sdgMetadata.indicatorCode) {
+        description.push(`Indicator ${sdgMetadata.indicatorCode}`);
+      } else if (sdgMetadata.indicator) {
+        description.push(`${sdgMetadata.indicatorCode}`);
+      }
+
+      // Build Series Info
+      if (sdgMetadata.seriesCode && sdgMetadata.series) {
+        description.push(`Series ${sdgMetadata.seriesCode} - ${sdgMetadata.series}`);
+      } else if (sdgMetadata.seriesCode) {
+        description.push(`Series ${sdgMetadata.seriesCode}`);
+      } else if (sdgMetadata.series) {
+        description.push(`${sdgMetadata.seriesCode}`);
+      }
+
+      if (description.length > 0) {
+        updateOptions.params.description = description.join('<br>');
+      }
+    }
+
     const updateResponse = await axios(updateOptions);
 
     return response;
