@@ -16,7 +16,7 @@
     "cors": "^2.8.5",
     "debug": "~2.6.9",
     "express": "~4.16.1",
-    "express-fileupload": "^1.1.5",
+    "express-fileupload": "^1.1.9",
     "fast-xml-parser": "^3.12.16",
     "form-data": "^2.4.0",
     "http-errors": "~1.6.3",
