@@ -24,7 +24,7 @@
     "isomorphic-form-data": "^2.0.0",
     "moment": "^2.24.0",
     "morgan": "~1.9.1",
-    "papaparse": "^5.0.1",
+    "papaparse": "^5.2.0",
     "pug": "2.0.0-beta11",
     "request": "^2.88.0",
     "request-promise": "^4.2.4"
