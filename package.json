@@ -22,7 +22,7 @@
     "http-errors": "~1.6.3",
     "isomorphic-fetch": "^2.2.1",
     "isomorphic-form-data": "^2.0.0",
-    "moment": "^2.24.0",
+    "moment": "^2.29.4",
     "morgan": "~1.9.1",
     "papaparse": "^5.0.1",
     "pug": "2.0.0-beta11",
